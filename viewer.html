@@ -3,61 +3,178 @@
 <head>
     <title>RemoteDesk Viewer</title>
     <style>
-        body { margin: 0; background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; }
-        #screen { max-width: 100%; max-height: 100vh; border: 2px solid #333; }
-        #status { position: fixed; top: 10px; left: 10px; color: #fff; background: rgba(0,0,0,0.7); padding: 5px 10px; border-radius: 5px; font-family: Arial; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #1a1a2e; font-family: Arial, sans-serif; }
+
+        #sidebar {
+            position: fixed; left: 0; top: 0; width: 250px; height: 100vh;
+            background: #16213e; padding: 15px; overflow-y: auto;
+        }
+        #sidebar h2 { color: #0f3460; color: #e94560; margin-bottom: 15px; font-size: 16px; }
+
+        .agent-item {
+            background: #0f3460; color: #fff; padding: 10px; border-radius: 8px;
+            margin-bottom: 8px; cursor: pointer; transition: 0.2s;
+        }
+        .agent-item:hover { background: #e94560; }
+        .agent-item.active { background: #e94560; }
+        .agent-name { font-weight: bold; font-size: 14px; }
+        .agent-id { font-size: 11px; opacity: 0.7; margin-top: 3px; }
+
+        #no-agents { color: #888; font-size: 13px; }
+
+        #main { margin-left: 250px; height: 100vh; display: flex; flex-direction: column; }
+
+        #status-bar {
+            background: #16213e; color: #fff; padding: 8px 15px;
+            font-size: 13px; display: flex; align-items: center; gap: 10px;
+        }
+        #status-dot { width: 8px; height: 8px; border-radius: 50%; background: #888; }
+        #status-dot.connected { background: #4caf50; }
+        #status-dot.disconnected { background: #e94560; }
+
+        #screen-container {
+            flex: 1; display: flex; justify-content: center; align-items: center;
+            background: #000; overflow: hidden;
+        }
+        #screen { max-width: 100%; max-height: 100%; display: none; }
+        #placeholder { color: #444; font-size: 18px; }
     </style>
 </head>
 <body>
-    <div id="status">Connecting...</div>
-    <img id="screen" src="" alt="Remote Screen"/>
 
-    <script>
-        const ws = new WebSocket('ws://localhost:8080');
-        const screenImg = document.getElementById('screen');
-        const status = document.getElementById('status');
+<div id="sidebar">
+    <h2>🖥 Connected PCs</h2>
+    <div id="agent-list"><p id="no-agents">No agents connected</p></div>
+</div>
 
-        screenImg.addEventListener('click', (e) => {
-            const rect = screenImg.getBoundingClientRect();
-            const scaleX = screenImg.naturalWidth / rect.width;
-            const scaleY = screenImg.naturalHeight / rect.height;
-            const x = Math.round((e.clientX - rect.left) * scaleX);
-            const y = Math.round((e.clientY - rect.top) * scaleY);
-            ws.send('MOUSE_CLICK:' + x + ':' + y);
+<div id="main">
+    <div id="status-bar">
+        <div id="status-dot"></div>
+        <span id="status-text">Select a PC from the list</span>
+    </div>
+    <div id="screen-container">
+        <img id="screen" alt="Remote Screen"/>
+        <p id="placeholder">👈 Select a PC to start viewing</p>
+    </div>
+</div>
+
+<script>
+    const ws = new WebSocket('wss://pacemaker-aim-reawake.ngrok-free.dev', [], {
+        headers: {
+            'ngrok-skip-browser-warning': 'true'
+        }
+    });
+        
+    ws.binaryType = 'blob';
+    const screenImg = document.getElementById('screen');
+    const statusDot = document.getElementById('status-dot');
+    const statusText = document.getElementById('status-text');
+    const agentListDiv = document.getElementById('agent-list');
+    const placeholder = document.getElementById('placeholder');
+
+    let selectedAgentId = null;
+
+    ws.onopen = () => {
+        ws.send('REGISTER:VIEWER');
+        statusText.textContent = 'Connected to server';
+        statusDot.className = 'connected';
+    };
+
+    ws.onmessage = (event) => {
+        const msg = event.data;
+
+        if (msg.startsWith('SCREEN:')) {
+            const base64 = msg.substring(7);
+            screenImg.src = 'data:image/jpeg;base64,' + base64;
+            screenImg.style.display = 'block';
+            placeholder.style.display = 'none';
+            return;
+        }
+
+        if (msg.startsWith('AGENT_LIST:')) {
+            const agents = JSON.parse(msg.substring(11));
+            renderAgentList(agents);
+            return;
+        }
+
+        if (msg === 'AGENT_DISCONNECTED') {
+            statusText.textContent = 'Agent disconnected';
+            statusDot.className = 'disconnected';
+            screenImg.style.display = 'none';
+            placeholder.style.display = 'block';
+            placeholder.textContent = '⚠️ Agent disconnected';
+            selectedAgentId = null;
+            return;
+        }
+    };
+
+    ws.onclose = () => {
+        statusText.textContent = 'Server disconnected - Reconnecting...';
+        statusDot.className = 'disconnected';
+        setTimeout(() => location.reload(), 3000);
+    };
+
+    function renderAgentList(agents) {
+        if (agents.length === 0) {
+            agentListDiv.innerHTML = '<p id="no-agents">No agents connected</p>';
+            return;
+        }
+        agentListDiv.innerHTML = '';
+        agents.forEach(agent => {
+            const div = document.createElement('div');
+            div.className = 'agent-item' + (agent.id === selectedAgentId ? ' active' : '');
+            div.innerHTML = `<div class="agent-name">🖥 ${agent.name}</div><div class="agent-id">ID: ${agent.id}</div>`;
+            div.onclick = () => selectAgent(agent.id, agent.name, div);
+            agentListDiv.appendChild(div);
         });
+    }
 
-        screenImg.addEventListener('mousemove', (e) => {
-            const rect = screenImg.getBoundingClientRect();
-            const scaleX = screenImg.naturalWidth / rect.width;
-            const scaleY = screenImg.naturalHeight / rect.height;
-            const x = Math.round((e.clientX - rect.left) * scaleX);
-            const y = Math.round((e.clientY - rect.top) * scaleY);
-            ws.send('MOUSE_MOVE:' + x + ':' + y);
-        });
+    function selectAgent(agentId, agentName, div) {
+        selectedAgentId = agentId;
+        ws.send('SELECT:' + agentId);
+        statusText.textContent = 'Viewing: ' + agentName;
+        statusDot.className = 'connected';
+        placeholder.textContent = '👈 Select a PC to start viewing';
 
-        ws.onopen = () => {
-            ws.send('REGISTER:VIEWER');
-            status.textContent = 'Connected';
-            status.style.background = 'rgba(0,128,0,0.7)';
-        };
+        document.querySelectorAll('.agent-item').forEach(d => d.classList.remove('active'));
+        div.classList.add('active');
+    }
 
-        ws.onmessage = (event) => {
-            const msg = event.data;
-            if (msg.startsWith('SCREEN:')) {
-                const base64 = msg.substring(7);
-                screenImg.src = 'data:image/jpeg;base64,' + base64;
-            }
-        };
+    // Mouse move
+    screenImg.addEventListener('mousemove', (e) => {
+        if (!selectedAgentId) return;
+        const rect = screenImg.getBoundingClientRect();
+        const scaleX = screenImg.naturalWidth / rect.width;
+        const scaleY = screenImg.naturalHeight / rect.height;
+        const x = Math.round((e.clientX - rect.left) * scaleX);
+        const y = Math.round((e.clientY - rect.top) * scaleY);
+        ws.send('MOUSE_MOVE:' + x + ':' + y);
+    });
 
-        ws.onclose = () => {
-            status.textContent = 'Disconnected';
-            status.style.background = 'rgba(255,0,0,0.7)';
-        };
+    // Mouse click
+    screenImg.addEventListener('click', (e) => {
+        if (!selectedAgentId) return;
+        const rect = screenImg.getBoundingClientRect();
+        const scaleX = screenImg.naturalWidth / rect.width;
+        const scaleY = screenImg.naturalHeight / rect.height;
+        const x = Math.round((e.clientX - rect.left) * scaleX);
+        const y = Math.round((e.clientY - rect.top) * scaleY);
+        ws.send('MOUSE_CLICK:' + x + ':' + y);
+    });
 
-        ws.onerror = () => {
-            status.textContent = 'Error';
-            status.style.background = 'rgba(255,0,0,0.7)';
-        };
-    </script>
+        // Keyboard
+    document.addEventListener('keydown', (e) => {
+        if (!selectedAgentId) return;
+        e.preventDefault();
+        ws.send('KEY_DOWN:' + e.key + ':' + e.keyCode);
+    });
+
+    document.addEventListener('keyup', (e) => {
+        if (!selectedAgentId) return;
+        e.preventDefault();
+        ws.send('KEY_UP:' + e.key + ':' + e.keyCode);
+    });
+</script>
 </body>
 </html>
