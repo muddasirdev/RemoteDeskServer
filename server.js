@@ -1,12 +1,33 @@
 const WebSocket = require('ws');
 
-const wss = new WebSocket.Server({ port: 8080 });
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+
+const server = http.createServer((req, res) => {
+    if (req.url === '/' || req.url === '/viewer') {
+        const filePath = path.join(__dirname, 'viewer.html');
+        fs.readFile(filePath, (err, data) => {
+            if (err) {
+                res.writeHead(404);
+                res.end('Not found');
+                return;
+            }
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            res.end(data);
+        });
+    }
+});
+
+const wss = new WebSocket.Server({ server });
+
+server.listen(8080, () => {
+    console.log('RemoteDesk Server started on port 8080');
+});
 
 // Connected agents store karo
 const agents = new Map(); // agentId -> {ws, name}
 let viewerSockets = [];
-
-console.log('RemoteDesk Server started on port 8080');
 
 wss.on('connection', (ws) => {
     console.log('New connection...');
