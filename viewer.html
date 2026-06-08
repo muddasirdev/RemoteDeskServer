@@ -86,7 +86,7 @@
 
         if (msg.startsWith('SCREEN:')) {
             const base64 = msg.substring(7);
-            screenImg.src = 'data:image/jpeg;base64,' + base64 + '?' + Date.now();
+            screenImg.src = 'data:image/jpeg;base64,' + base64;
             screenImg.style.display = 'block';
             placeholder.style.display = 'none';
             return;
