@@ -25,6 +25,14 @@ server.listen(8080, () => {
     console.log('RemoteDesk Server started on port 8080');
 });
 
+setInterval(() => {
+    wss.clients.forEach(ws => {
+        if (ws.readyState === WebSocket.OPEN) {
+            ws.ping();
+        }
+    });
+}, 25000);
+
 // Connected agents store karo
 const agents = new Map(); // agentId -> {ws, name}
 let viewerSockets = [];
